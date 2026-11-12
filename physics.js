@@ -29,10 +29,12 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 	scene.traverse((mesh) => {
 		if (!mesh.isMesh || !mesh.userData.physics) return;
 
-		const { mass, restitution } = mesh.userData.physics;
+		const { mass, restitution, shape: shapeType, height, radius, lockRotation } = mesh.userData.physics;
 		const parameters = mesh.geometry.parameters;
 		let shape = null;
-		if (mesh.geometry.type === 'SphereGeometry') {
+		if (shapeType === 'capsule') {
+			shape = new Jolt.CapsuleShape(height / 2 - radius, radius, null);
+		} else if (mesh.geometry.type === 'SphereGeometry') {
 			shape = new Jolt.SphereShape(parameters.radius, null);
 		} else if (mesh.geometry.type === 'BoxGeometry') {
 			const halfWidth = parameters.width / 2;
@@ -53,6 +55,11 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 		const layer = isDynamic ? 1 : 0;
 		const bodySettings = new Jolt.BodyCreationSettings(shape, position, rotation, motionType, layer);
 		bodySettings.mRestitution = restitution;
+		if (lockRotation) {
+			bodySettings.mAllowedDOFs = Jolt.EAllowedDOFs_TranslationX
+				| Jolt.EAllowedDOFs_TranslationY
+				| Jolt.EAllowedDOFs_TranslationZ;
+		}
 		const body = bodyInterface.CreateBody(bodySettings);
 		bodyInterface.AddBody(body.GetID(), Jolt.EActivation_Activate);
 		Jolt.destroy(bodySettings);

@@ -71,7 +71,7 @@ export function createWorld(THREE, camera) {
 		new THREE.BoxGeometry(1.1, 1.1, 1.1),
 		new THREE.MeshStandardMaterial({ color: 0xe45f56, roughness: 0.48, metalness: 0.04 }),
 	);
-	player.position.set(0, 1.2, 0);
+	player.position.set(0, 0.9, 0);
 	player.castShadow = true;
 	player.receiveShadow = true;
 	player.visible = false;
@@ -80,6 +80,7 @@ export function createWorld(THREE, camera) {
 
 	const avatar = new THREE.Group();
 	avatar.name = 'Chell';
+	avatar.visible = false;
 	scene.add(avatar);
 
 	return { scene, player, avatar, portals };

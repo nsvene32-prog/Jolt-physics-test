@@ -35,11 +35,11 @@ document.body.append(startupError);
 
 let physics = null;
 let characterMixer = null;
+let characterHeight = 1.75;
 let previousTime = performance.now();
 let portalErrorReported = false;
 
-camera.position.set(player.position.x, player.position.y + 0.6, player.position.z + 3.2);
-camera.lookAt(player.position.x, player.position.y + 0.6, player.position.z);
+camera.position.set(player.position.x, player.position.y + characterHeight * 0.4, player.position.z);
 
 function animate(now) {
 	requestAnimationFrame(animate);
@@ -52,18 +52,11 @@ function animate(now) {
 		if (jumped) controls.clearJump();
 	}
 
-	avatar.position.set(player.position.x, player.position.y - 0.55, player.position.z);
+	avatar.position.set(player.position.x, player.position.y - characterHeight / 2, player.position.z);
 	avatar.rotation.y = input.yaw;
 	characterMixer?.update(delta);
-	const cameraDistance = 3.2;
-	const cameraTargetY = player.position.y + 0.6;
-	const horizontalDistance = cameraDistance * Math.cos(input.pitch);
-	camera.position.set(
-		player.position.x - Math.sin(input.yaw) * horizontalDistance,
-		cameraTargetY - Math.sin(input.pitch) * cameraDistance,
-		player.position.z + Math.cos(input.yaw) * horizontalDistance,
-	);
-	camera.lookAt(player.position.x, cameraTargetY, player.position.z);
+	camera.position.set(player.position.x, player.position.y + characterHeight * 0.4, player.position.z);
+	camera.rotation.set(input.pitch, input.yaw, 0, 'YXZ');
 	renderer.render(scene, camera);
 	try {
 		renderPortals(renderer, camera, portals);
@@ -93,6 +86,22 @@ async function start() {
 	characterModel.position.x -= (characterBounds.min.x + characterBounds.max.x) / 2;
 	characterModel.position.y -= characterBounds.min.y;
 	characterModel.position.z -= (characterBounds.min.z + characterBounds.max.z) / 2;
+	characterModel.updateMatrixWorld(true);
+	characterBounds.setFromObject(characterModel);
+	const characterSize = characterBounds.getSize(new THREE.Vector3());
+	characterHeight = characterSize.y;
+	const characterRadius = Math.min(Math.max(characterSize.x, characterSize.z) * 0.45, characterHeight * 0.45);
+	player.geometry.dispose();
+	player.geometry = new THREE.BoxGeometry(characterRadius * 2, characterHeight, characterRadius * 2);
+	player.position.set(0, characterHeight / 2 + 0.03, 0);
+	player.userData.physics = {
+		mass: 2,
+		restitution: 0.08,
+		shape: 'capsule',
+		height: characterHeight,
+		radius: characterRadius,
+		lockRotation: true,
+	};
 	characterModel.traverse((object) => {
 		if (!object.isMesh) return;
 		object.castShadow = true;
