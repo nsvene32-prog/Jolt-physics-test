@@ -30,6 +30,12 @@ viewModel.rotation.y = Math.PI;
 viewModel.layers.set(1);
 camera.add(viewModel);
 
+const portalGunHolder = new THREE.Group();
+portalGunHolder.name = 'PortalGunWorldModel';
+portalGunHolder.position.set(0.24, 1.08, 0.08);
+portalGunHolder.rotation.y = Math.PI;
+avatar.add(portalGunHolder);
+
 window.addEventListener('resize', () => {
 	camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
@@ -45,9 +51,37 @@ document.body.append(startupError);
 
 let physics = null;
 let characterMixer = null;
+let animationActions = {};
+let activeLocomotionAction = null;
+let jumpAnimationPlaying = false;
 let characterHeight = 1.75;
+let viewModelCollisionBounds = [];
 let previousTime = performance.now();
 let portalErrorReported = false;
+const viewModelBounds = new THREE.Box3();
+
+function playLocomotionAnimation(name) {
+	const nextAction = animationActions[name];
+	if (!nextAction || nextAction === activeLocomotionAction) return;
+	nextAction.reset().play();
+	if (activeLocomotionAction) activeLocomotionAction.crossFadeTo(nextAction, 0.2, false);
+	activeLocomotionAction = nextAction;
+}
+
+function keepViewModelClearOfWalls() {
+	viewModel.position.set(0.28, -0.24, -0.42);
+	viewModel.visible = true;
+	viewModel.updateWorldMatrix(true, true);
+	for (let step = 0; step < 32; step += 1) {
+		viewModelBounds.setFromObject(viewModel);
+		const intersectsWall = viewModelCollisionBounds.some((bounds) => viewModelBounds.intersectsBox(bounds));
+		if (!intersectsWall) break;
+		viewModel.position.z += 0.025;
+		viewModel.updateWorldMatrix(true, true);
+	}
+	viewModelBounds.setFromObject(viewModel);
+	viewModel.visible = !viewModelCollisionBounds.some((bounds) => viewModelBounds.intersectsBox(bounds));
+}
 
 camera.position.set(player.position.x, player.position.y + characterHeight * 0.4, player.position.z);
 
@@ -57,16 +91,33 @@ function animate(now) {
 	previousTime = now;
 
 	const input = controls.update(delta);
+	let jumped = false;
 	if (physics) {
-		const jumped = physics.step(delta, input);
+		jumped = physics.step(delta, input);
 		if (jumped) controls.clearJump();
+	}
+	if (jumped && animationActions.jump) {
+		const jumpAction = animationActions.jump;
+		jumpAction.reset().play();
+		if (activeLocomotionAction) activeLocomotionAction.crossFadeTo(jumpAction, 0.08, false);
+		jumpAnimationPlaying = true;
 	}
 
 	avatar.position.set(player.position.x, player.position.y - characterHeight / 2, player.position.z);
 	avatar.rotation.y = input.yaw;
+	const strafe = input.moveX * Math.cos(input.yaw) - input.moveZ * Math.sin(input.yaw);
+	const forward = -input.moveX * Math.sin(input.yaw) - input.moveZ * Math.cos(input.yaw);
+	if (!jumpAnimationPlaying) {
+		const moving = Math.hypot(input.moveX, input.moveZ) > 0.1;
+		const animationName = !moving ? 'idle'
+			: Math.abs(strafe) > Math.abs(forward) ? (strafe < 0 ? 'left' : 'right')
+			: 'run';
+		playLocomotionAnimation(animationName);
+	}
 	characterMixer?.update(delta);
 	camera.position.set(player.position.x, player.position.y + characterHeight * 0.4, player.position.z);
 	camera.rotation.set(input.pitch, input.yaw, 0, 'YXZ');
+	keepViewModelClearOfWalls();
 	renderer.render(scene, camera);
 	try {
 		renderPortals(renderer, camera, portals, avatar);
@@ -96,9 +147,19 @@ async function start() {
 	portalGunModel.position.copy(gunCenter.multiplyScalar(-gunScale));
 	portalGunModel.traverse((object) => object.layers.set(1));
 	viewModel.add(portalGunModel);
+	const portalGunWorldModel = portalGunModel.clone(true);
+	portalGunWorldModel.traverse((object) => object.layers.set(0));
+	portalGunHolder.add(portalGunWorldModel);
+
+	viewModelCollisionBounds = [];
+	scene.traverse((object) => {
+		if (!object.isMesh || object.userData.physics?.mass !== 0) return;
+		viewModelCollisionBounds.push(new THREE.Box3().setFromObject(object));
+	});
 
 	const character = await loader.loadAsync('./assets/chell/chell.glb');
 	const characterModel = character.scene;
+	characterModel.rotation.y = Math.PI;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
 	const sourceCharacterHeight = characterBounds.getSize(new THREE.Vector3()).y;
 	if (sourceCharacterHeight <= 0) throw new Error('Chell model has no measurable height');
@@ -130,8 +191,39 @@ async function start() {
 		object.receiveShadow = true;
 	});
 	avatar.add(characterModel);
-	characterMixer = character.animations.length ? new THREE.AnimationMixer(characterModel) : null;
-	characterMixer?.clipAction(character.animations[0]).play();
+	characterMixer = new THREE.AnimationMixer(characterModel);
+	const animationFiles = {
+		idle: './assets/chell/animations/StandingIdle.glb',
+		run: './assets/chell/animations/StationaryRunning.glb',
+		left: './assets/chell/animations/LeftStrafe.glb',
+		right: './assets/chell/animations/RightStrafe.glb',
+		jump: './assets/chell/animations/Jump.glb',
+	};
+	const animationEntries = await Promise.all(Object.entries(animationFiles).map(async ([name, path]) => {
+		const animationAsset = await loader.loadAsync(path);
+		const clip = animationAsset.animations[0];
+		if (!clip) throw new Error(`Animation file has no clip: ${path}`);
+		if (name === 'idle') {
+			clip.tracks = clip.tracks.filter((track) => !track.name.startsWith('root.quaternion'));
+			for (const track of clip.tracks) track.name = track.name.replace('playerqc_skeleton', 'player.qc_skeleton');
+		}
+		return [name, clip];
+	}));
+	animationActions = Object.fromEntries(animationEntries.map(([name, clip]) => [name, characterMixer.clipAction(clip)]));
+	for (const [name, action] of Object.entries(animationActions)) {
+		if (name === 'jump') {
+			action.setLoop(THREE.LoopOnce, 1);
+			action.clampWhenFinished = true;
+		} else {
+			action.setLoop(THREE.LoopRepeat, Infinity);
+		}
+	}
+	characterMixer.addEventListener('finished', (event) => {
+		if (event.action !== animationActions.jump) return;
+		jumpAnimationPlaying = false;
+		activeLocomotionAction = null;
+	});
+	playLocomotionAnimation('idle');
 
 	physics = await createPhysics(THREE, initJolt, scene, player);
 }
