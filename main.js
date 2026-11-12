@@ -4,7 +4,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import initJolt from 'jolt-physics';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
-import { renderPortals } from './portals.js';
+import { renderPortals, resizePortals } from './portals.js';
 import { createControls } from './controls.js';
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
@@ -25,6 +25,7 @@ window.addEventListener('resize', () => {
 	camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
 	renderer.setSize(window.innerWidth, window.innerHeight);
+	resizePortals(portals, camera.aspect);
 });
 
 const controls = createControls(THREE, renderer.domElement);

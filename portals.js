@@ -4,16 +4,15 @@ const portalHalfTurn = new THREE.Matrix4().makeRotationY(Math.PI);
 const portalMatrix = new THREE.Matrix4();
 const portalTransform = new THREE.Matrix4();
 const portalInverse = new THREE.Matrix4();
+const portalTargetHeight = 1024;
 
 function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], color, wall, width = 1.5, height = 2.5 }) {
 	const portal = new THREE.Group();
 	portal.position.set(...position);
 	portal.rotation.set(...rotation);
 
-	const aspect = width / height;
-	const targetHeight = 1024;
-	const targetWidth = Math.round(targetHeight * aspect);
-	const renderTarget = new THREE.WebGLRenderTarget(targetWidth, targetHeight, {
+	const targetWidth = Math.round(portalTargetHeight * camera.aspect);
+	const renderTarget = new THREE.WebGLRenderTarget(targetWidth, portalTargetHeight, {
 		minFilter: THREE.LinearFilter,
 		magFilter: THREE.LinearFilter,
 		depthBuffer: true,
@@ -24,7 +23,7 @@ function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], co
 		uniforms: {
 			portalTexture: { value: renderTarget.texture },
 			portalColor: { value: new THREE.Color(color) },
-			resolution: { value: new THREE.Vector2(targetWidth, targetHeight) },
+			resolution: { value: new THREE.Vector2(targetWidth, portalTargetHeight) },
 			portalViewProjection: { value: new THREE.Matrix4() },
 		},
 		vertexShader: `
@@ -46,7 +45,11 @@ function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], co
 			varying vec4 vPortalClipPosition;
 			void main() {
 				vec2 portalUv = vPortalClipPosition.xy / vPortalClipPosition.w * 0.5 + 0.5;
-				vec3 view = texture2D(portalTexture, portalUv).rgb;
+				float insideView = step(0.0001, vPortalClipPosition.w)
+					* step(0.0, portalUv.x) * step(portalUv.x, 1.0)
+					* step(0.0, portalUv.y) * step(portalUv.y, 1.0);
+				vec2 safePortalUv = clamp(portalUv, vec2(0.001), vec2(0.999));
+				vec3 view = mix(portalColor, texture2D(portalTexture, safePortalUv).rgb, insideView);
 				vec2 edgeDistance = min(vUv, 1.0 - vUv) * resolution;
 				float edge = 1.0 - smoothstep(0.0, 18.0, min(edgeDistance.x, edgeDistance.y));
 				gl_FragColor = vec4(mix(view, portalColor, edge * 0.22), 1.0);
@@ -66,7 +69,7 @@ function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], co
 		surface,
 		wall,
 		renderTarget,
-		camera: new THREE.PerspectiveCamera(camera.fov, aspect, camera.near, camera.far),
+		camera: new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far),
 		destination: null,
 	};
 }
@@ -86,6 +89,16 @@ export function createPortalPair(THREE, scene, camera, { eastWall, northWall }) 
 	tealPortal.destination = amberPortal;
 	amberPortal.destination = tealPortal;
 	return [tealPortal, amberPortal];
+}
+
+export function resizePortals(portals, aspect) {
+	const targetWidth = Math.max(1, Math.round(portalTargetHeight * aspect));
+	for (const portal of portals) {
+		portal.renderTarget.setSize(targetWidth, portalTargetHeight);
+		portal.camera.aspect = aspect;
+		portal.camera.updateProjectionMatrix();
+		portal.surface.material.uniforms.resolution.value.set(targetWidth, portalTargetHeight);
+	}
 }
 
 export function renderPortals(renderer, camera, portals, avatar) {
