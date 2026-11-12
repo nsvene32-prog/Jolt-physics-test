@@ -20,6 +20,15 @@ renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
 const { scene, player, avatar, portals } = createWorld(THREE, camera);
+camera.layers.enable(1);
+scene.add(camera);
+
+const viewModel = new THREE.Group();
+viewModel.name = 'FirstPersonViewModel';
+viewModel.position.set(0.28, -0.24, -0.42);
+viewModel.rotation.y = Math.PI;
+viewModel.layers.set(1);
+camera.add(viewModel);
 
 window.addEventListener('resize', () => {
 	camera.aspect = window.innerWidth / window.innerHeight;
@@ -76,6 +85,18 @@ async function start() {
 	dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/');
 	const loader = new GLTFLoader();
 	loader.setDRACOLoader(dracoLoader);
+	const portalGun = await loader.loadAsync('./assets/models/props/portal_gun%202.glb');
+	const portalGunModel = portalGun.scene;
+	const gunBounds = new THREE.Box3().setFromObject(portalGunModel);
+	const gunSize = gunBounds.getSize(new THREE.Vector3());
+	if (gunSize.z <= 0) throw new Error('Portal gun model has no measurable length');
+	const gunScale = 0.62 / gunSize.z;
+	const gunCenter = gunBounds.getCenter(new THREE.Vector3());
+	portalGunModel.scale.setScalar(gunScale);
+	portalGunModel.position.copy(gunCenter.multiplyScalar(-gunScale));
+	portalGunModel.traverse((object) => object.layers.set(1));
+	viewModel.add(portalGunModel);
+
 	const character = await loader.loadAsync('./assets/chell/chell.glb');
 	const characterModel = character.scene;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
