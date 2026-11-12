@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import initJolt from 'jolt-physics';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
 import { renderPortals } from './portals.js';
+import { createControls } from './controls.js';
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.rotation.order = 'YXZ';
@@ -25,50 +27,61 @@ window.addEventListener('resize', () => {
 	renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-let yaw = 0;
-let pitch = 0;
-let touchPointerId = null;
-let previousTouchX = 0;
-let previousTouchY = 0;
+const controls = createControls(THREE, renderer.domElement);
+const startupError = document.createElement('div');
+startupError.className = 'startup-error';
+startupError.hidden = true;
+document.body.append(startupError);
 
-renderer.domElement.addEventListener('click', () => {
-	if (window.matchMedia('(pointer: fine)').matches && document.pointerLockElement !== renderer.domElement) {
-		renderer.domElement.requestPointerLock();
+let physics = null;
+let characterMixer = null;
+let previousTime = performance.now();
+let portalErrorReported = false;
+
+camera.position.set(player.position.x, player.position.y + 0.6, player.position.z + 3.2);
+camera.lookAt(player.position.x, player.position.y + 0.6, player.position.z);
+
+function animate(now) {
+	requestAnimationFrame(animate);
+	const delta = Math.min((now - previousTime) / 1000, 1 / 30);
+	previousTime = now;
+
+	const input = controls.update(delta);
+	if (physics) {
+		const jumped = physics.step(delta, input);
+		if (jumped) controls.clearJump();
 	}
-});
 
-document.addEventListener('mousemove', (event) => {
-	if (document.pointerLockElement !== renderer.domElement) return;
-	yaw -= event.movementX * 0.0025;
-	pitch = THREE.MathUtils.clamp(pitch - event.movementY * 0.0025, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05);
-});
+	avatar.position.set(player.position.x, player.position.y - 0.55, player.position.z);
+	avatar.rotation.y = input.yaw;
+	characterMixer?.update(delta);
+	const cameraDistance = 3.2;
+	const cameraTargetY = player.position.y + 0.6;
+	const horizontalDistance = cameraDistance * Math.cos(input.pitch);
+	camera.position.set(
+		player.position.x - Math.sin(input.yaw) * horizontalDistance,
+		cameraTargetY - Math.sin(input.pitch) * cameraDistance,
+		player.position.z + Math.cos(input.yaw) * horizontalDistance,
+	);
+	camera.lookAt(player.position.x, cameraTargetY, player.position.z);
+	renderer.render(scene, camera);
+	try {
+		renderPortals(renderer, camera, portals);
+	} catch (error) {
+		if (!portalErrorReported) {
+			console.error('Unable to render portals:', error);
+			portalErrorReported = true;
+		}
+	}
+}
 
-renderer.domElement.addEventListener('pointerdown', (event) => {
-	if (event.pointerType !== 'touch') return;
-	touchPointerId = event.pointerId;
-	previousTouchX = event.clientX;
-	previousTouchY = event.clientY;
-	renderer.domElement.setPointerCapture(event.pointerId);
-});
-
-renderer.domElement.addEventListener('pointermove', (event) => {
-	if (event.pointerId !== touchPointerId) return;
-	const deltaX = event.clientX - previousTouchX;
-	const deltaY = event.clientY - previousTouchY;
-	previousTouchX = event.clientX;
-	previousTouchY = event.clientY;
-	yaw -= deltaX * 0.004;
-	pitch = THREE.MathUtils.clamp(pitch - deltaY * 0.004, -Math.PI / 2 + 0.05, Math.PI / 2 - 0.05);
-});
-
-const endTouchLook = (event) => {
-	if (event.pointerId === touchPointerId) touchPointerId = null;
-};
-renderer.domElement.addEventListener('pointerup', endTouchLook);
-renderer.domElement.addEventListener('pointercancel', endTouchLook);
+requestAnimationFrame(animate);
 
 async function start() {
+	const dracoLoader = new DRACOLoader();
+	dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/');
 	const loader = new GLTFLoader();
+	loader.setDRACOLoader(dracoLoader);
 	const character = await loader.loadAsync('./assets/chell/chell.glb');
 	const characterModel = character.scene;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
@@ -86,66 +99,14 @@ async function start() {
 		object.receiveShadow = true;
 	});
 	avatar.add(characterModel);
-	const characterMixer = character.animations.length ? new THREE.AnimationMixer(characterModel) : null;
+	characterMixer = character.animations.length ? new THREE.AnimationMixer(characterModel) : null;
 	characterMixer?.clipAction(character.animations[0]).play();
 
-	const physics = await createPhysics(THREE, initJolt, scene, player);
-	const pressedKeys = new Set();
-	const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
-	const lookKeys = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
-	let jumpQueued = false;
-
-	window.addEventListener('keydown', (event) => {
-		if (event.code === 'Space') {
-			event.preventDefault();
-			if (!pressedKeys.has(event.code)) jumpQueued = true;
-			pressedKeys.add(event.code);
-			return;
-		}
-		if (!movementKeys.has(event.code) && !lookKeys.has(event.code)) return;
-		event.preventDefault();
-		pressedKeys.add(event.code);
-	});
-	window.addEventListener('keyup', (event) => pressedKeys.delete(event.code));
-	window.addEventListener('blur', () => pressedKeys.clear());
-
-	let previousTime = performance.now();
-	function animate(now) {
-		requestAnimationFrame(animate);
-		const delta = Math.min((now - previousTime) / 1000, 1 / 30);
-		previousTime = now;
-
-		const turnSpeed = 1.8 * delta;
-		if (pressedKeys.has('ArrowLeft')) yaw += turnSpeed;
-		if (pressedKeys.has('ArrowRight')) yaw -= turnSpeed;
-		if (pressedKeys.has('ArrowUp')) pitch = Math.min(Math.PI / 2 - 0.05, pitch + turnSpeed);
-		if (pressedKeys.has('ArrowDown')) pitch = Math.max(-Math.PI / 2 + 0.05, pitch - turnSpeed);
-
-		const strafe = Number(pressedKeys.has('KeyD')) - Number(pressedKeys.has('KeyA'));
-		const forward = Number(pressedKeys.has('KeyW')) - Number(pressedKeys.has('KeyS'));
-		const moveLength = Math.hypot(strafe, forward) || 1;
-		const moveX = (strafe * Math.cos(yaw) - forward * Math.sin(yaw)) / moveLength;
-		const moveZ = (-strafe * Math.sin(yaw) - forward * Math.cos(yaw)) / moveLength;
-		const jumped = physics.step(delta, { moveX, moveZ, jump: jumpQueued });
-		if (jumped) jumpQueued = false;
-
-		avatar.position.set(player.position.x, player.position.y - 0.55, player.position.z);
-		avatar.rotation.y = yaw;
-		characterMixer?.update(delta);
-		const cameraDistance = 3.2;
-		const cameraTargetY = player.position.y + 0.6;
-		const horizontalDistance = cameraDistance * Math.cos(pitch);
-		camera.position.set(
-			player.position.x - Math.sin(yaw) * horizontalDistance,
-			cameraTargetY - Math.sin(pitch) * cameraDistance,
-			player.position.z + Math.cos(yaw) * horizontalDistance,
-		);
-		camera.lookAt(player.position.x, cameraTargetY, player.position.z);
-		renderPortals(renderer, camera, portals);
-		renderer.render(scene, camera);
-	}
-
-	requestAnimationFrame(animate);
+	physics = await createPhysics(THREE, initJolt, scene, player);
 }
 
-start().catch((error) => console.error('Unable to start Jolt physics:', error));
+start().catch((error) => {
+	console.error('Unable to start Jolt physics:', error);
+	startupError.textContent = `Startup error: ${error.message}`;
+	startupError.hidden = false;
+});
