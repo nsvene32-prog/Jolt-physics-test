@@ -88,7 +88,7 @@ export function createPortalPair(THREE, scene, camera, { eastWall, northWall }) 
 	return [tealPortal, amberPortal];
 }
 
-export function renderPortals(renderer, camera, portals) {
+export function renderPortals(renderer, camera, portals, avatar) {
 	camera.updateMatrixWorld(true);
 	for (const portal of portals) {
 		const { destination, renderTarget, camera: portalCamera } = portal;
@@ -114,15 +114,18 @@ export function renderPortals(renderer, camera, portals) {
 		const previousTarget = renderer.getRenderTarget();
 		const surfaceVisibility = portals.map((linkedPortal) => linkedPortal.surface.visible);
 		const wallWasVisible = destination.wall.visible;
+		const avatarWasVisible = avatar.visible;
 		try {
 			for (const linkedPortal of portals) linkedPortal.surface.visible = false;
 			destination.wall.visible = false;
+			avatar.visible = true;
 			renderer.setRenderTarget(renderTarget);
 			renderer.clear();
 			renderer.render(portal.group.parent, portalCamera);
 		} finally {
 			renderer.setRenderTarget(previousTarget);
 			destination.wall.visible = wallWasVisible;
+			avatar.visible = avatarWasVisible;
 			portals.forEach((linkedPortal, index) => {
 				linkedPortal.surface.visible = surfaceVisibility[index];
 			});

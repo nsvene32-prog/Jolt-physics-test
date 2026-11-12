@@ -59,7 +59,7 @@ function animate(now) {
 	camera.rotation.set(input.pitch, input.yaw, 0, 'YXZ');
 	renderer.render(scene, camera);
 	try {
-		renderPortals(renderer, camera, portals);
+		renderPortals(renderer, camera, portals, avatar);
 	} catch (error) {
 		if (!portalErrorReported) {
 			console.error('Unable to render portals:', error);
@@ -90,7 +90,7 @@ async function start() {
 	characterBounds.setFromObject(characterModel);
 	const characterSize = characterBounds.getSize(new THREE.Vector3());
 	characterHeight = characterSize.y;
-	const characterRadius = Math.min(Math.max(characterSize.x, characterSize.z) * 0.45, characterHeight * 0.45);
+	const characterRadius = Math.min(characterSize.x, characterSize.z) * 0.5;
 	player.geometry.dispose();
 	player.geometry = new THREE.BoxGeometry(characterRadius * 2, characterHeight, characterRadius * 2);
 	player.position.set(0, characterHeight / 2 + 0.03, 0);
