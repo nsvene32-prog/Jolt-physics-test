@@ -78,9 +78,9 @@ async function start() {
 	const character = await loader.loadAsync('./assets/chell/chell.glb');
 	const characterModel = character.scene;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
-	const characterHeight = characterBounds.getSize(new THREE.Vector3()).y;
-	if (characterHeight <= 0) throw new Error('Chell model has no measurable height');
-	characterModel.scale.setScalar(1.75 / characterHeight);
+	const sourceCharacterHeight = characterBounds.getSize(new THREE.Vector3()).y;
+	if (sourceCharacterHeight <= 0) throw new Error('Chell model has no measurable height');
+	characterModel.scale.setScalar(1.75 / sourceCharacterHeight);
 	characterModel.updateMatrixWorld(true);
 	characterBounds.setFromObject(characterModel);
 	characterModel.position.x -= (characterBounds.min.x + characterBounds.max.x) / 2;
