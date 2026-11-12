@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import initJolt from 'jolt-physics';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
@@ -16,7 +17,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
-const { scene, player, portals } = createWorld(THREE, camera);
+const { scene, player, avatar, portals } = createWorld(THREE, camera);
 
 window.addEventListener('resize', () => {
 	camera.aspect = window.innerWidth / window.innerHeight;
@@ -67,6 +68,27 @@ renderer.domElement.addEventListener('pointerup', endTouchLook);
 renderer.domElement.addEventListener('pointercancel', endTouchLook);
 
 async function start() {
+	const loader = new GLTFLoader();
+	const character = await loader.loadAsync('./assets/chell/chell.glb');
+	const characterModel = character.scene;
+	const characterBounds = new THREE.Box3().setFromObject(characterModel);
+	const characterHeight = characterBounds.getSize(new THREE.Vector3()).y;
+	if (characterHeight <= 0) throw new Error('Chell model has no measurable height');
+	characterModel.scale.setScalar(1.75 / characterHeight);
+	characterModel.updateMatrixWorld(true);
+	characterBounds.setFromObject(characterModel);
+	characterModel.position.x -= (characterBounds.min.x + characterBounds.max.x) / 2;
+	characterModel.position.y -= characterBounds.min.y;
+	characterModel.position.z -= (characterBounds.min.z + characterBounds.max.z) / 2;
+	characterModel.traverse((object) => {
+		if (!object.isMesh) return;
+		object.castShadow = true;
+		object.receiveShadow = true;
+	});
+	avatar.add(characterModel);
+	const characterMixer = character.animations.length ? new THREE.AnimationMixer(characterModel) : null;
+	characterMixer?.clipAction(character.animations[0]).play();
+
 	const physics = await createPhysics(THREE, initJolt, scene, player);
 	const pressedKeys = new Set();
 	const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD']);
@@ -107,8 +129,18 @@ async function start() {
 		const jumped = physics.step(delta, { moveX, moveZ, jump: jumpQueued });
 		if (jumped) jumpQueued = false;
 
-		camera.position.set(player.position.x, player.position.y + 0.18, player.position.z);
-		camera.rotation.set(pitch, yaw, 0, 'YXZ');
+		avatar.position.set(player.position.x, player.position.y - 0.55, player.position.z);
+		avatar.rotation.y = yaw;
+		characterMixer?.update(delta);
+		const cameraDistance = 3.2;
+		const cameraTargetY = player.position.y + 0.6;
+		const horizontalDistance = cameraDistance * Math.cos(pitch);
+		camera.position.set(
+			player.position.x - Math.sin(yaw) * horizontalDistance,
+			cameraTargetY - Math.sin(pitch) * cameraDistance,
+			player.position.z + Math.cos(yaw) * horizontalDistance,
+		);
+		camera.lookAt(player.position.x, cameraTargetY, player.position.z);
 		renderPortals(renderer, camera, portals);
 		renderer.render(scene, camera);
 	}

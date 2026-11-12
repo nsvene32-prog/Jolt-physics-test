@@ -78,5 +78,9 @@ export function createWorld(THREE, camera) {
 	player.userData.physics = { mass: 2, restitution: 0.08 };
 	scene.add(player);
 
-	return { scene, player, portals };
+	const avatar = new THREE.Group();
+	avatar.name = 'Chell';
+	scene.add(avatar);
+
+	return { scene, player, avatar, portals };
 }
