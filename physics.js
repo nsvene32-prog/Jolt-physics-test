@@ -29,11 +29,42 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 	scene.traverse((mesh) => {
 		if (!mesh.isMesh || !mesh.userData.physics) return;
 
-		const { mass, restitution, shape: shapeType, height, radius, lockRotation } = mesh.userData.physics;
+		const { mass, restitution, shape: shapeType, height, radius, lockRotation, gunCollider } = mesh.userData.physics;
 		const parameters = mesh.geometry.parameters;
 		let shape = null;
+		let compoundSettings = null;
+		let compoundResult = null;
 		if (shapeType === 'capsule') {
-			shape = new Jolt.CapsuleShape(height / 2 - radius, radius, null);
+			if (gunCollider) {
+				compoundSettings = new Jolt.StaticCompoundShapeSettings();
+				const capsuleSettings = new Jolt.CapsuleShapeSettings(height / 2 - radius, radius, null);
+				const origin = new Jolt.Vec3(0, 0, 0);
+				const identity = new Jolt.Quat(0, 0, 0, 1);
+				compoundSettings.AddShape(origin, identity, capsuleSettings, 0);
+				Jolt.destroy(capsuleSettings);
+				Jolt.destroy(origin);
+				Jolt.destroy(identity);
+
+				const gunPosition = new Jolt.Vec3(...gunCollider.position);
+				const gunRotation = new Jolt.Quat(
+					0,
+					Math.sin(gunCollider.rotationY / 2),
+					0,
+					Math.cos(gunCollider.rotationY / 2),
+				);
+				const gunHalfExtents = new Jolt.Vec3(...gunCollider.halfExtents);
+				const gunSettings = new Jolt.BoxShapeSettings(gunHalfExtents, 0.02, null);
+				compoundSettings.AddShape(gunPosition, gunRotation, gunSettings, 0);
+				Jolt.destroy(gunSettings);
+				Jolt.destroy(gunHalfExtents);
+				Jolt.destroy(gunPosition);
+				Jolt.destroy(gunRotation);
+				compoundResult = compoundSettings.Create();
+				if (!compoundResult.IsValid()) throw new Error(`Unable to create player compound shape: ${compoundResult.GetError()}`);
+				shape = compoundResult.Get();
+			} else {
+				shape = new Jolt.CapsuleShape(height / 2 - radius, radius, null);
+			}
 		} else if (mesh.geometry.type === 'SphereGeometry') {
 			shape = new Jolt.SphereShape(parameters.radius, null);
 		} else if (mesh.geometry.type === 'BoxGeometry') {
@@ -58,11 +89,14 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 		if (lockRotation) {
 			bodySettings.mAllowedDOFs = Jolt.EAllowedDOFs_TranslationX
 				| Jolt.EAllowedDOFs_TranslationY
-				| Jolt.EAllowedDOFs_TranslationZ;
+				| Jolt.EAllowedDOFs_TranslationZ
+				| Jolt.EAllowedDOFs_RotationY;
 		}
 		const body = bodyInterface.CreateBody(bodySettings);
 		bodyInterface.AddBody(body.GetID(), Jolt.EActivation_Activate);
 		Jolt.destroy(bodySettings);
+		if (compoundResult) Jolt.destroy(compoundResult);
+		if (compoundSettings) Jolt.destroy(compoundSettings);
 		physicsMeshes.push(mesh);
 
 		if (isDynamic) {
@@ -87,9 +121,16 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 		return false;
 	}
 
-	function step(delta, { moveX, moveZ, jump }) {
+	function step(delta, { moveX, moveZ, jump, yaw = 0 }) {
 		let jumped = false;
 		if (playerBody) {
+			const rotation = new Jolt.Quat(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
+			const angularVelocity = new Jolt.Vec3(0, 0, 0);
+			bodyInterface.SetRotation(playerBody.GetID(), rotation, Jolt.EActivation_Activate);
+			bodyInterface.SetAngularVelocity(playerBody.GetID(), angularVelocity);
+			Jolt.destroy(rotation);
+			Jolt.destroy(angularVelocity);
+
 			const currentVelocity = bodyInterface.GetLinearVelocity(playerBody.GetID());
 			let verticalVelocity = currentVelocity.GetY();
 			if (jump && isPlayerGrounded() && Math.abs(verticalVelocity) < 0.5) {

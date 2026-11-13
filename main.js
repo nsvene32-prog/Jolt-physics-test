@@ -7,6 +7,9 @@ import { createPhysics } from './physics.js';
 import { renderPortals, resizePortals } from './portals.js';
 import { createControls } from './controls.js';
 
+const ASSET_VERSION = Date.now();
+const assetUrl = (path) => `${path}?v=${ASSET_VERSION}`;
+
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.rotation.order = 'YXZ';
 
@@ -19,7 +22,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 document.body.appendChild(renderer.domElement);
 
-const { scene, player, avatar, portals } = createWorld(THREE, camera);
+const { scene, player, avatar, portals, props } = createWorld(THREE, camera);
 camera.layers.enable(1);
 scene.add(camera);
 
@@ -55,10 +58,11 @@ let animationActions = {};
 let activeLocomotionAction = null;
 let jumpAnimationPlaying = false;
 let characterHeight = 1.75;
-let viewModelCollisionBounds = [];
+let viewModelCollisionObjects = [];
 let previousTime = performance.now();
 let portalErrorReported = false;
 const viewModelBounds = new THREE.Box3();
+const colliderBounds = new THREE.Box3();
 
 function playLocomotionAnimation(name) {
 	const nextAction = animationActions[name];
@@ -74,13 +78,21 @@ function keepViewModelClearOfWalls() {
 	viewModel.updateWorldMatrix(true, true);
 	for (let step = 0; step < 32; step += 1) {
 		viewModelBounds.setFromObject(viewModel);
-		const intersectsWall = viewModelCollisionBounds.some((bounds) => viewModelBounds.intersectsBox(bounds));
-		if (!intersectsWall) break;
+		const intersectsCollider = viewModelCollisionObjects.some((object) => {
+			object.updateWorldMatrix(true, false);
+			colliderBounds.copy(object.geometry.boundingBox).applyMatrix4(object.matrixWorld);
+			return viewModelBounds.intersectsBox(colliderBounds);
+		});
+		if (!intersectsCollider) break;
 		viewModel.position.z += 0.025;
 		viewModel.updateWorldMatrix(true, true);
 	}
 	viewModelBounds.setFromObject(viewModel);
-	viewModel.visible = !viewModelCollisionBounds.some((bounds) => viewModelBounds.intersectsBox(bounds));
+	viewModel.visible = !viewModelCollisionObjects.some((object) => {
+		object.updateWorldMatrix(true, false);
+		colliderBounds.copy(object.geometry.boundingBox).applyMatrix4(object.matrixWorld);
+		return viewModelBounds.intersectsBox(colliderBounds);
+	});
 }
 
 camera.position.set(player.position.x, player.position.y + characterHeight * 0.4, player.position.z);
@@ -136,7 +148,34 @@ async function start() {
 	dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/draco/');
 	const loader = new GLTFLoader();
 	loader.setDRACOLoader(dracoLoader);
-	const portalGun = await loader.loadAsync('./assets/models/props/portal_gun%202.glb');
+	const propAssets = await Promise.all([
+		loader.loadAsync(assetUrl('./assets/models/props/radio_compressed.glb')),
+		loader.loadAsync(assetUrl('./assets/models/props/Portal_Companion_Cube_compressed.glb')),
+	]);
+	const propModels = {
+		radio: propAssets[0].scene,
+		weightedCube: propAssets[1].scene,
+	};
+	for (const collider of props) {
+		const model = propModels[collider.userData.propModel].clone(true);
+		const bounds = new THREE.Box3().setFromObject(model);
+		const center = bounds.getCenter(new THREE.Vector3());
+		const modelSize = bounds.getSize(new THREE.Vector3());
+		const targetSize = new THREE.Vector3(
+			collider.geometry.parameters.width,
+			collider.geometry.parameters.height,
+			collider.geometry.parameters.depth,
+		);
+		const scale = Math.min(targetSize.x / modelSize.x, targetSize.y / modelSize.y, targetSize.z / modelSize.z);
+		model.scale.setScalar(scale);
+		model.position.copy(center.multiplyScalar(-scale));
+		model.traverse((object) => {
+			if (object.isMesh) object.castShadow = object.receiveShadow = true;
+		});
+		collider.add(model);
+	}
+
+	const portalGun = await loader.loadAsync(assetUrl('./assets/models/props/portal_gun%202.glb'));
 	const portalGunModel = portalGun.scene;
 	const gunBounds = new THREE.Box3().setFromObject(portalGunModel);
 	const gunSize = gunBounds.getSize(new THREE.Vector3());
@@ -151,13 +190,14 @@ async function start() {
 	portalGunWorldModel.traverse((object) => object.layers.set(0));
 	portalGunHolder.add(portalGunWorldModel);
 
-	viewModelCollisionBounds = [];
+	viewModelCollisionObjects = [];
 	scene.traverse((object) => {
-		if (!object.isMesh || object.userData.physics?.mass !== 0) return;
-		viewModelCollisionBounds.push(new THREE.Box3().setFromObject(object));
+		if (!object.isMesh || !object.userData.physics || object === player) return;
+		object.geometry.computeBoundingBox();
+		viewModelCollisionObjects.push(object);
 	});
 
-	const character = await loader.loadAsync('./assets/chell/chell.glb');
+	const character = await loader.loadAsync(assetUrl('./assets/chell/chell.glb'));
 	const characterModel = character.scene;
 	characterModel.rotation.y = Math.PI;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
@@ -184,6 +224,15 @@ async function start() {
 		height: characterHeight,
 		radius: characterRadius,
 		lockRotation: true,
+		gunCollider: {
+			halfExtents: [gunSize.x * gunScale / 2, gunSize.y * gunScale / 2, gunSize.z * gunScale / 2],
+			position: [
+				portalGunHolder.position.x,
+				portalGunHolder.position.y - characterHeight / 2 - 0.03,
+				portalGunHolder.position.z,
+			],
+			rotationY: Math.PI,
+		},
 	};
 	characterModel.traverse((object) => {
 		if (!object.isMesh) return;
@@ -193,11 +242,11 @@ async function start() {
 	avatar.add(characterModel);
 	characterMixer = new THREE.AnimationMixer(characterModel);
 	const animationFiles = {
-		idle: './assets/chell/animations/StandingIdle.glb',
-		run: './assets/chell/animations/StationaryRunning.glb',
-		left: './assets/chell/animations/LeftStrafe.glb',
-		right: './assets/chell/animations/RightStrafe.glb',
-		jump: './assets/chell/animations/Jump.glb',
+		idle: assetUrl('./assets/chell/animations/StandingIdle.glb'),
+		run: assetUrl('./assets/chell/animations/StationaryRunning.glb'),
+		left: assetUrl('./assets/chell/animations/LeftStrafe.glb'),
+		right: assetUrl('./assets/chell/animations/RightStrafe.glb'),
+		jump: assetUrl('./assets/chell/animations/Jump.glb'),
 	};
 	const animationEntries = await Promise.all(Object.entries(animationFiles).map(async ([name, path]) => {
 		const animationAsset = await loader.loadAsync(path);

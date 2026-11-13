@@ -43,13 +43,23 @@ export function createWorld(THREE, camera) {
 		return mesh;
 	}
 
-	addBox({ size: [1.35, 1.35, 1.35], position: [-2.2, 2.6, 0], color: 0xd2754c });
-	addBox({ size: [1.15, 2, 1.15], position: [1.8, 3.4, -0.5], color: 0xe7bd65, restitution: 0.18 });
-	addBox({ size: [1, 1, 1], position: [-4.6, 1.5, -2.8], color: 0x4c8792 });
-	addBox({ size: [1, 1, 1], position: [-4.6, 2.6, -2.8], color: 0xe8c65c });
-	addBox({ size: [1.4, 0.8, 1.4], position: [4.1, 1.7, -3.2], color: 0x8e7560 });
-	addBox({ size: [0.8, 1.5, 0.8], position: [4.4, 2.8, 2.8], color: 0x5e829e });
-	addBox({ size: [1.1, 1.1, 1.1], position: [-4.8, 2, 3.2], color: 0x9a6c85 });
+	const props = [];
+	function addPropCollider({ model, size, position, mass }) {
+		const collider = new THREE.Mesh(
+			new THREE.BoxGeometry(...size),
+			new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
+		);
+		collider.position.set(...position);
+		collider.userData.physics = { mass, restitution: 0.12 };
+		collider.userData.propModel = model;
+		scene.add(collider);
+		props.push(collider);
+	}
+
+	addPropCollider({ model: 'weightedCube', size: [0.78, 0.78, 0.78], position: [-2.2, 0.39, 0], mass: 1.5 });
+	addPropCollider({ model: 'weightedCube', size: [0.78, 0.78, 0.78], position: [1.8, 0.39, -0.5], mass: 1.5 });
+	addPropCollider({ model: 'radio', size: [0.48, 0.48, 0.28], position: [-4.6, 0.24, -2.8], mass: 0.8 });
+	addPropCollider({ model: 'radio', size: [0.48, 0.48, 0.28], position: [4.1, 0.24, -3.2], mass: 0.8 });
 	addBox({ size: [0.5, 3, 14], position: [-9.75, 1.5, 0], color: 0x52686a, mass: 0 });
 	const eastWall = addBox({ size: [0.5, 3, 14], position: [9.75, 1.5, 0], color: 0x52686a, mass: 0 });
 	const northWall = addBox({ size: [20, 3, 0.5], position: [0, 1.5, -6.75], color: 0x52686a, mass: 0 });
@@ -83,5 +93,5 @@ export function createWorld(THREE, camera) {
 	avatar.visible = false;
 	scene.add(avatar);
 
-	return { scene, player, avatar, portals };
+	return { scene, player, avatar, portals, props };
 }

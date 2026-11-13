@@ -18,6 +18,12 @@ function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], wa
 		depthBuffer: true,
 	});
 	renderTarget.texture.colorSpace = THREE.SRGBColorSpace;
+	const nestedRenderTarget = new THREE.WebGLRenderTarget(targetWidth, portalTargetHeight, {
+		minFilter: THREE.LinearFilter,
+		magFilter: THREE.LinearFilter,
+		depthBuffer: true,
+	});
+	nestedRenderTarget.texture.colorSpace = THREE.SRGBColorSpace;
 
 	const surfaceMaterial = new THREE.ShaderMaterial({
 		uniforms: {
@@ -59,7 +65,9 @@ function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], wa
 		surface,
 		wall,
 		renderTarget,
+		nestedRenderTarget,
 		camera: new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far),
+		nestedCamera: new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far),
 		destination: null,
 	};
 }
@@ -83,16 +91,18 @@ export function resizePortals(portals, aspect) {
 	const targetWidth = Math.max(1, Math.round(portalTargetHeight * aspect));
 	for (const portal of portals) {
 		portal.renderTarget.setSize(targetWidth, portalTargetHeight);
+		portal.nestedRenderTarget.setSize(targetWidth, portalTargetHeight);
 		portal.camera.aspect = aspect;
 		portal.camera.updateProjectionMatrix();
-		portal.surface.material.uniforms.resolution.value.set(targetWidth, portalTargetHeight);
+		portal.nestedCamera.aspect = aspect;
+		portal.nestedCamera.updateProjectionMatrix();
 	}
 }
 
 export function renderPortals(renderer, camera, portals, avatar) {
 	camera.updateMatrixWorld(true);
 	for (const portal of portals) {
-		const { destination, renderTarget, camera: portalCamera } = portal;
+		const { destination, renderTarget, nestedRenderTarget, camera: portalCamera, nestedCamera } = portal;
 		portal.group.updateWorldMatrix(true, false);
 		destination.group.updateWorldMatrix(true, false);
 		portalInverse.copy(portal.group.matrixWorld).invert();
@@ -114,18 +124,53 @@ export function renderPortals(renderer, camera, portals, avatar) {
 
 		const previousTarget = renderer.getRenderTarget();
 		const surfaceVisibility = portals.map((linkedPortal) => linkedPortal.surface.visible);
-		const wallWasVisible = destination.wall.visible;
+		const wallVisibility = portals.map((linkedPortal) => linkedPortal.wall.visible);
 		const avatarWasVisible = avatar.visible;
+		const destinationTexture = destination.surface.material.uniforms.portalTexture.value;
+		const destinationViewProjection = destination.surface.material.uniforms.portalViewProjection.value;
+		const previousDestinationViewProjection = destinationViewProjection.clone();
 		try {
 			for (const linkedPortal of portals) linkedPortal.surface.visible = false;
-			destination.wall.visible = false;
 			avatar.visible = true;
+
+			const nestedDestination = destination.destination;
+			destination.group.updateWorldMatrix(true, false);
+			nestedDestination.group.updateWorldMatrix(true, false);
+			portalInverse.copy(destination.group.matrixWorld).invert();
+			portalTransform.copy(nestedDestination.group.matrixWorld)
+				.multiply(portalHalfTurn)
+				.multiply(portalInverse);
+			portalMatrix.copy(portalTransform).multiply(portalCamera.matrixWorld);
+			portalMatrix.decompose(nestedCamera.position, nestedCamera.quaternion, nestedCamera.scale);
+			nestedCamera.fov = portalCamera.fov;
+			nestedCamera.near = portalCamera.near;
+			nestedCamera.far = portalCamera.far;
+			nestedCamera.updateProjectionMatrix();
+			nestedCamera.updateMatrixWorld(true);
+			nestedCamera.matrixWorldInverse.copy(nestedCamera.matrixWorld).invert();
+			destinationViewProjection
+				.copy(nestedCamera.projectionMatrix)
+				.multiply(nestedCamera.matrixWorldInverse)
+				.multiply(portalTransform);
+
+			nestedDestination.wall.visible = false;
+			renderer.setRenderTarget(nestedRenderTarget);
+			renderer.clear();
+			renderer.render(portal.group.parent, nestedCamera);
+
+			destination.surface.material.uniforms.portalTexture.value = nestedRenderTarget.texture;
+			destination.surface.visible = true;
+			destination.wall.visible = false;
 			renderer.setRenderTarget(renderTarget);
 			renderer.clear();
 			renderer.render(portal.group.parent, portalCamera);
 		} finally {
 			renderer.setRenderTarget(previousTarget);
-			destination.wall.visible = wallWasVisible;
+			destination.surface.material.uniforms.portalTexture.value = destinationTexture;
+			destinationViewProjection.copy(previousDestinationViewProjection);
+			portals.forEach((linkedPortal, index) => {
+				linkedPortal.wall.visible = wallVisibility[index];
+			});
 			avatar.visible = avatarWasVisible;
 			portals.forEach((linkedPortal, index) => {
 				linkedPortal.surface.visible = surfaceVisibility[index];
