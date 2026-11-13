@@ -1,5 +1,4 @@
-export async function createPhysics(THREE, initJolt, scene, player) {
-	const Jolt = await initJolt();
+export async function createPhysics(THREE, Jolt, scene, player) {
 	const settings = new Jolt.JoltSettings();
 	const objectLayerFilter = new Jolt.ObjectLayerPairFilterTable(2);
 	objectLayerFilter.EnableCollision(0, 1);
