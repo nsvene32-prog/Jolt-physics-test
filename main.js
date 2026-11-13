@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import initJolt from 'jolt-physics';
+import initJolt from 'https://cdn.jsdelivr.net/npm/jolt-physics@0.36.0/dist/jolt-physics.wasm-compat.js?v=20261113';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
 import { renderPortals, resizePortals } from './portals.js';

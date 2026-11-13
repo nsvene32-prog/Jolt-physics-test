@@ -41,9 +41,6 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 				const origin = new Jolt.Vec3(0, 0, 0);
 				const identity = new Jolt.Quat(0, 0, 0, 1);
 				compoundSettings.AddShape(origin, identity, capsuleSettings, 0);
-				Jolt.destroy(capsuleSettings);
-				Jolt.destroy(origin);
-				Jolt.destroy(identity);
 
 				const gunPosition = new Jolt.Vec3(...gunCollider.position);
 				const gunRotation = new Jolt.Quat(
@@ -55,10 +52,6 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 				const gunHalfExtents = new Jolt.Vec3(...gunCollider.halfExtents);
 				const gunSettings = new Jolt.BoxShapeSettings(gunHalfExtents, 0.02, null);
 				compoundSettings.AddShape(gunPosition, gunRotation, gunSettings, 0);
-				Jolt.destroy(gunSettings);
-				Jolt.destroy(gunHalfExtents);
-				Jolt.destroy(gunPosition);
-				Jolt.destroy(gunRotation);
 				compoundResult = compoundSettings.Create();
 				if (!compoundResult.IsValid()) throw new Error(`Unable to create player compound shape: ${compoundResult.GetError()}`);
 				shape = compoundResult.Get();
@@ -94,9 +87,6 @@ export async function createPhysics(THREE, initJolt, scene, player) {
 		}
 		const body = bodyInterface.CreateBody(bodySettings);
 		bodyInterface.AddBody(body.GetID(), Jolt.EActivation_Activate);
-		Jolt.destroy(bodySettings);
-		if (compoundResult) Jolt.destroy(compoundResult);
-		if (compoundSettings) Jolt.destroy(compoundSettings);
 		physicsMeshes.push(mesh);
 
 		if (isDynamic) {
