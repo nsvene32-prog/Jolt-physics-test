@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { JoltPhysics } from 'three/addons/physics/JoltPhysics.js';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
 import { renderPortals, resizePortals } from './portals.js';
@@ -287,9 +288,8 @@ async function start() {
 	});
 	playLocomotionAnimation('idle');
 
-	const { default: initJolt } = await import('https://cdn.jsdelivr.net/npm/jolt-physics@0.23.0/dist/jolt-physics.wasm-compat.js');
-	const Jolt = await initJolt();
-	physics = await createPhysics(THREE, Jolt, scene, player);
+	const joltPhysics = await JoltPhysics();
+	physics = await createPhysics(THREE, joltPhysics, scene, player);
 }
 
 start().catch((error) => {
