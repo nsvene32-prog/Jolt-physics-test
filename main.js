@@ -10,6 +10,20 @@ import { createControls } from './controls.js';
 const ASSET_VERSION = Date.now();
 const assetUrl = (path) => `${path}?v=${ASSET_VERSION}`;
 
+async function loadSafeGltf(loader, path) {
+	const url = assetUrl(path);
+	const response = await fetch(url, { cache: 'no-store' });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch GLTF asset: ${path} (${response.status})`);
+	}
+	const buffer = await response.arrayBuffer();
+	const markerText = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buffer));
+	if (markerText.includes('KHR_texture_basisu') || markerText.includes('image/ktx2')) {
+		throw new Error(`Blocked Basis/KTX2 asset: ${path}`);
+	}
+	return loader.loadAsync(url);
+}
+
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.rotation.order = 'YXZ';
 
@@ -149,8 +163,8 @@ async function start() {
 	const loader = new GLTFLoader();
 	loader.setDRACOLoader(dracoLoader);
 	const propAssets = await Promise.all([
-		loader.loadAsync(assetUrl('./assets/models/props/radio_compressed.glb')),
-		loader.loadAsync(assetUrl('./assets/models/props/Portal_Companion_Cube_compressed.glb')),
+		loadSafeGltf(loader, './assets/models/props/radio_compressed.glb'),
+		loadSafeGltf(loader, './assets/models/props/Portal_Companion_Cube_compressed.glb'),
 	]);
 	const propModels = {
 		radio: propAssets[0].scene,
@@ -175,7 +189,7 @@ async function start() {
 		collider.add(model);
 	}
 
-	const portalGun = await loader.loadAsync(assetUrl('./assets/models/props/portal_gun%202.glb'));
+	const portalGun = await loadSafeGltf(loader, './assets/models/props/portal_gun%202.glb');
 	const portalGunModel = portalGun.scene;
 	const gunBounds = new THREE.Box3().setFromObject(portalGunModel);
 	const gunSize = gunBounds.getSize(new THREE.Vector3());
@@ -197,7 +211,7 @@ async function start() {
 		viewModelCollisionObjects.push(object);
 	});
 
-	const character = await loader.loadAsync(assetUrl('./assets/chell/chell.glb'));
+	const character = await loadSafeGltf(loader, './assets/chell/chell.glb');
 	const characterModel = character.scene;
 	characterModel.rotation.y = Math.PI;
 	const characterBounds = new THREE.Box3().setFromObject(characterModel);
@@ -242,14 +256,14 @@ async function start() {
 	avatar.add(characterModel);
 	characterMixer = new THREE.AnimationMixer(characterModel);
 	const animationFiles = {
-		idle: assetUrl('./assets/chell/animations/StandingIdle.glb'),
-		run: assetUrl('./assets/chell/animations/StationaryRunning.glb'),
-		left: assetUrl('./assets/chell/animations/LeftStrafe.glb'),
-		right: assetUrl('./assets/chell/animations/RightStrafe.glb'),
-		jump: assetUrl('./assets/chell/animations/Jump.glb'),
+		idle: './assets/chell/animations/StandingIdle.glb',
+		run: './assets/chell/animations/StationaryRunning.glb',
+		left: './assets/chell/animations/LeftStrafe.glb',
+		right: './assets/chell/animations/RightStrafe.glb',
+		jump: './assets/chell/animations/Jump.glb',
 	};
 	const animationEntries = await Promise.all(Object.entries(animationFiles).map(async ([name, path]) => {
-		const animationAsset = await loader.loadAsync(path);
+		const animationAsset = await loadSafeGltf(loader, path);
 		const clip = animationAsset.animations[0];
 		if (!clip) throw new Error(`Animation file has no clip: ${path}`);
 		if (name === 'idle') {
