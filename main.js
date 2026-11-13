@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { JoltPhysics } from 'three/addons/physics/JoltPhysics.js';
+import { RapierPhysics } from 'three/addons/physics/RapierPhysics.js';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
 import { renderPortals, resizePortals } from './portals.js';
@@ -288,8 +288,8 @@ async function start() {
 	});
 	playLocomotionAnimation('idle');
 
-	const joltPhysics = await JoltPhysics();
-	physics = await createPhysics(THREE, joltPhysics, scene, player);
+	const rapierPhysics = await RapierPhysics();
+	physics = await createPhysics(THREE, rapierPhysics, scene, player);
 }
 
 start().catch((error) => {
