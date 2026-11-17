@@ -136,6 +136,9 @@ export async function createJoltSimulation(scene) {
 
 	return {
 		physicsMeshes,
+		hasBody(mesh) {
+			return bodiesByMesh.has(mesh);
+		},
 		getVerticalVelocity(mesh) {
 			const velocity = bodyInterface.GetLinearVelocity(getBody(mesh).GetID());
 			try {

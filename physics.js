@@ -2,7 +2,7 @@ import { createJoltSimulation } from './jolt-wrapper.js';
 
 export async function createPhysics(THREE, scene, player) {
 	const simulation = await createJoltSimulation(scene);
-	if (!scene.getObjectById(player.id)) throw new Error('Player mesh is not part of the physics scene');
+	if (!simulation.hasBody(player)) throw new Error('Jolt did not create a player body');
 	const { physicsMeshes } = simulation;
 	const playerBounds = new THREE.Box3();
 	const supportBounds = new THREE.Box3();
