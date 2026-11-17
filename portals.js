@@ -160,10 +160,15 @@ export function renderPortals(renderer, camera, portals, avatar) {
 				.multiply(nestedCamera.matrixWorldInverse)
 				.multiply(portalTransform);
 
-			nestedDestination.wall.visible = false;
-			renderer.setRenderTarget(nestedRenderTarget);
-			renderer.clear();
-			renderer.render(portal.group.parent, nestedCamera);
+			const nestedWallWasVisible = nestedDestination.wall.visible;
+			try {
+				nestedDestination.wall.visible = false;
+				renderer.setRenderTarget(nestedRenderTarget);
+				renderer.clear();
+				renderer.render(portal.group.parent, nestedCamera);
+			} finally {
+				nestedDestination.wall.visible = nestedWallWasVisible;
+			}
 
 			destination.surface.material.uniforms.portalTexture.value = nestedRenderTarget.texture;
 			destination.surface.visible = true;
