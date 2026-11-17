@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { RapierPhysics } from 'three/addons/physics/RapierPhysics.js';
 import { createWorld } from './world.js';
 import { createPhysics } from './physics.js';
 import { renderPortals, resizePortals } from './portals.js';
@@ -288,8 +287,11 @@ async function start() {
 	});
 	playLocomotionAnimation('idle');
 
-	const rapierPhysics = await RapierPhysics();
-	physics = await createPhysics(THREE, rapierPhysics, scene, player);
+	const joltModule = await import('https://cdn.jsdelivr.net/npm/jolt-physics@0.23.0/dist/jolt-physics.wasm-compat.js?v=20261117-1');
+	const initJolt = typeof joltModule.default === 'function' ? joltModule.default : joltModule.default?.default;
+	if (typeof initJolt !== 'function') throw new TypeError('Jolt 0.23.0 did not export an initializer function');
+	const Jolt = await initJolt();
+	physics = await createPhysics(THREE, Jolt, scene, player);
 }
 
 start().catch((error) => {
