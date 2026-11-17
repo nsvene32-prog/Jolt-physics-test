@@ -1,11 +1,29 @@
 import * as THREE from 'three';
 
 const portalHalfTurn = new THREE.Matrix4().makeRotationY(Math.PI);
-const portalMatrix = new THREE.Matrix4();
 const portalTransform = new THREE.Matrix4();
 const portalInverse = new THREE.Matrix4();
+const mappedCameraPosition = new THREE.Vector3();
+const mappedCameraDirection = new THREE.Vector3();
+const mappedCameraUp = new THREE.Vector3();
+const mappedCameraLookAt = new THREE.Vector3();
+const sourceCameraQuaternion = new THREE.Quaternion();
 const portalTargetHeight = 512;
 const nestedPortalTargetHeight = 256;
+
+function mapCamera(sourceCamera, targetCamera, transform) {
+	sourceCamera.updateMatrixWorld(true);
+	sourceCamera.getWorldPosition(mappedCameraPosition).applyMatrix4(transform);
+	sourceCamera.getWorldDirection(mappedCameraDirection).transformDirection(transform);
+	sourceCamera.getWorldQuaternion(sourceCameraQuaternion);
+	mappedCameraUp.copy(sourceCamera.up).applyQuaternion(sourceCameraQuaternion).transformDirection(transform);
+	mappedCameraLookAt.copy(mappedCameraPosition).add(mappedCameraDirection);
+	targetCamera.position.copy(mappedCameraPosition);
+	targetCamera.up.copy(mappedCameraUp);
+	targetCamera.lookAt(mappedCameraLookAt);
+	targetCamera.updateMatrixWorld(true);
+	targetCamera.matrixWorldInverse.copy(targetCamera.matrixWorld).invert();
+}
 
 function getTargetWidth(height, aspect) {
 	return Math.max(1, Math.round(height * aspect));
@@ -116,14 +134,11 @@ export function renderPortals(renderer, camera, portals, avatar) {
 		portalTransform.copy(destination.group.matrixWorld)
 			.multiply(portalHalfTurn)
 			.multiply(portalInverse);
-		portalMatrix.copy(portalTransform).multiply(camera.matrixWorld);
-		portalMatrix.decompose(portalCamera.position, portalCamera.quaternion, portalCamera.scale);
 		portalCamera.fov = camera.fov;
 		portalCamera.near = camera.near;
 		portalCamera.far = camera.far;
 		portalCamera.updateProjectionMatrix();
-		portalCamera.updateMatrixWorld(true);
-		portalCamera.matrixWorldInverse.copy(portalCamera.matrixWorld).invert();
+		mapCamera(camera, portalCamera, portalTransform);
 		portal.surface.material.uniforms.portalViewProjection.value
 			.copy(portalCamera.projectionMatrix)
 			.multiply(portalCamera.matrixWorldInverse)
@@ -147,14 +162,11 @@ export function renderPortals(renderer, camera, portals, avatar) {
 			portalTransform.copy(nestedDestination.group.matrixWorld)
 				.multiply(portalHalfTurn)
 				.multiply(portalInverse);
-			portalMatrix.copy(portalTransform).multiply(portalCamera.matrixWorld);
-			portalMatrix.decompose(nestedCamera.position, nestedCamera.quaternion, nestedCamera.scale);
 			nestedCamera.fov = portalCamera.fov;
 			nestedCamera.near = portalCamera.near;
 			nestedCamera.far = portalCamera.far;
 			nestedCamera.updateProjectionMatrix();
-			nestedCamera.updateMatrixWorld(true);
-			nestedCamera.matrixWorldInverse.copy(nestedCamera.matrixWorld).invert();
+			mapCamera(portalCamera, nestedCamera, portalTransform);
 			destinationViewProjection
 				.copy(nestedCamera.projectionMatrix)
 				.multiply(nestedCamera.matrixWorldInverse)
