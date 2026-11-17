@@ -1,102 +1,12 @@
-export async function createPhysics(THREE, Jolt, scene, player) {
-	const settings = new Jolt.JoltSettings();
-	const objectLayerFilter = new Jolt.ObjectLayerPairFilterTable(2);
-	objectLayerFilter.EnableCollision(0, 1);
-	objectLayerFilter.EnableCollision(1, 1);
+import { createJoltSimulation } from './jolt-wrapper.js';
 
-	const broadPhaseStatic = new Jolt.BroadPhaseLayer(0);
-	const broadPhaseMoving = new Jolt.BroadPhaseLayer(1);
-	const broadPhaseFilter = new Jolt.BroadPhaseLayerInterfaceTable(2, 2);
-	broadPhaseFilter.MapObjectToBroadPhaseLayer(0, broadPhaseStatic);
-	broadPhaseFilter.MapObjectToBroadPhaseLayer(1, broadPhaseMoving);
-	settings.mObjectLayerPairFilter = objectLayerFilter;
-	settings.mBroadPhaseLayerInterface = broadPhaseFilter;
-	settings.mObjectVsBroadPhaseLayerFilter = new Jolt.ObjectVsBroadPhaseLayerFilterTable(
-		broadPhaseFilter,
-		2,
-		objectLayerFilter,
-		2,
-	);
-
-	const jolt = new Jolt.JoltInterface(settings);
-	Jolt.destroy(settings);
-	const bodyInterface = jolt.GetPhysicsSystem().GetBodyInterface();
-	const dynamicBodies = [];
-	const physicsMeshes = [];
-	let playerBody = null;
-
-	scene.traverse((mesh) => {
-		if (!mesh.isMesh || !mesh.userData.physics) return;
-
-		const { mass, restitution, shape: shapeType, height, radius, lockRotation, gunCollider } = mesh.userData.physics;
-		const parameters = mesh.geometry.parameters;
-		let shape = null;
-		if (shapeType === 'capsule') {
-			if (gunCollider) {
-				const compoundSettings = new Jolt.StaticCompoundShapeSettings();
-				const capsuleSettings = new Jolt.CapsuleShapeSettings(height / 2 - radius, radius, null);
-				const origin = new Jolt.Vec3(0, 0, 0);
-				const identity = new Jolt.Quat(0, 0, 0, 1);
-				compoundSettings.AddShape(origin, identity, capsuleSettings, 0);
-
-				const gunPosition = new Jolt.Vec3(...gunCollider.position);
-				const gunRotation = new Jolt.Quat(
-					0,
-					Math.sin(gunCollider.rotationY / 2),
-					0,
-					Math.cos(gunCollider.rotationY / 2),
-				);
-				const gunHalfExtents = new Jolt.Vec3(...gunCollider.halfExtents);
-				const gunSettings = new Jolt.BoxShapeSettings(gunHalfExtents, 0.02, null);
-				compoundSettings.AddShape(gunPosition, gunRotation, gunSettings, 0);
-				const compoundResult = compoundSettings.Create();
-				if (!compoundResult.IsValid()) throw new Error(`Unable to create player compound shape: ${compoundResult.GetError()}`);
-				shape = compoundResult.Get();
-			} else {
-				shape = new Jolt.CapsuleShape(height / 2 - radius, radius, null);
-			}
-		} else if (mesh.geometry.type === 'SphereGeometry') {
-			shape = new Jolt.SphereShape(parameters.radius, null);
-		} else if (mesh.geometry.type === 'BoxGeometry') {
-			const halfWidth = parameters.width / 2;
-			const halfHeight = parameters.height / 2;
-			const halfDepth = parameters.depth / 2;
-			shape = new Jolt.BoxShape(
-				new Jolt.Vec3(halfWidth, halfHeight, halfDepth),
-				0.05 * Math.min(halfWidth, halfHeight, halfDepth),
-				null,
-			);
-		}
-		if (!shape) return;
-
-		const position = new Jolt.Vec3(mesh.position.x, mesh.position.y, mesh.position.z);
-		const rotation = new Jolt.Quat(mesh.quaternion.x, mesh.quaternion.y, mesh.quaternion.z, mesh.quaternion.w);
-		const isDynamic = mass > 0;
-		const motionType = isDynamic ? Jolt.EMotionType_Dynamic : Jolt.EMotionType_Static;
-		const layer = isDynamic ? 1 : 0;
-		const bodySettings = new Jolt.BodyCreationSettings(shape, position, rotation, motionType, layer);
-		bodySettings.mRestitution = restitution;
-		if (lockRotation) {
-			bodySettings.mAllowedDOFs = Jolt.EAllowedDOFs_TranslationX
-				| Jolt.EAllowedDOFs_TranslationY
-				| Jolt.EAllowedDOFs_TranslationZ
-				| Jolt.EAllowedDOFs_RotationY;
-		}
-		const body = bodyInterface.CreateBody(bodySettings);
-		if (!body) throw new Error(`Unable to create physics body for ${mesh.name || mesh.geometry.type}`);
-		bodyInterface.AddBody(body.GetID(), Jolt.EActivation_Activate);
-		physicsMeshes.push(mesh);
-
-		if (isDynamic) {
-			dynamicBodies.push({ mesh, body });
-			if (mesh === player) playerBody = body;
-		}
-	});
-
-	if (!playerBody) throw new Error('Jolt did not create a dynamic player body');
-
+export async function createPhysics(THREE, scene, player) {
+	const simulation = await createJoltSimulation(scene);
+	if (!scene.getObjectById(player.id)) throw new Error('Player mesh is not part of the physics scene');
+	const { physicsMeshes } = simulation;
 	const playerBounds = new THREE.Box3();
 	const supportBounds = new THREE.Box3();
+
 	function isPlayerGrounded() {
 		playerBounds.setFromObject(player);
 		for (const mesh of physicsMeshes) {
@@ -112,33 +22,15 @@ export async function createPhysics(THREE, Jolt, scene, player) {
 	}
 
 	function step(delta, { moveX, moveZ, jump, yaw = 0 }) {
+		simulation.setYaw(player, yaw);
+		let verticalVelocity = simulation.getVerticalVelocity(player);
 		let jumped = false;
-		const rotation = new Jolt.Quat(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
-		const angularVelocity = new Jolt.Vec3(0, 0, 0);
-		bodyInterface.SetRotation(playerBody.GetID(), rotation, Jolt.EActivation_Activate);
-		bodyInterface.SetAngularVelocity(playerBody.GetID(), angularVelocity);
-		Jolt.destroy(rotation);
-		Jolt.destroy(angularVelocity);
-
-		const currentVelocity = bodyInterface.GetLinearVelocity(playerBody.GetID());
-		let verticalVelocity = currentVelocity.GetY();
 		if (jump && isPlayerGrounded() && Math.abs(verticalVelocity) < 0.5) {
 			verticalVelocity = 6.5;
 			jumped = true;
 		}
-		const velocity = new Jolt.Vec3(moveX * 5, verticalVelocity, moveZ * 5);
-		bodyInterface.SetLinearVelocity(playerBody.GetID(), velocity);
-		if (moveX !== 0 || moveZ !== 0 || jumped) bodyInterface.ActivateBody(playerBody.GetID());
-		Jolt.destroy(currentVelocity);
-		Jolt.destroy(velocity);
-
-		jolt.Step(Math.min(delta, 1 / 30), delta > 1 / 55 ? 2 : 1);
-		for (const { mesh, body } of dynamicBodies) {
-			const position = body.GetPosition();
-			const bodyRotation = body.GetRotation();
-			mesh.position.set(position.GetX(), position.GetY(), position.GetZ());
-			mesh.quaternion.set(bodyRotation.GetX(), bodyRotation.GetY(), bodyRotation.GetZ(), bodyRotation.GetW());
-		}
+		simulation.setVelocity(player, moveX * 5, verticalVelocity, moveZ * 5);
+		simulation.step(delta);
 		return jumped;
 	}
 

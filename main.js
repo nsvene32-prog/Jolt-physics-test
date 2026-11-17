@@ -287,11 +287,7 @@ async function start() {
 	});
 	playLocomotionAnimation('idle');
 
-	const joltModule = await import('https://cdn.jsdelivr.net/npm/jolt-physics@0.23.0/dist/jolt-physics.wasm-compat.js?v=20261117-1');
-	const initJolt = typeof joltModule.default === 'function' ? joltModule.default : joltModule.default?.default;
-	if (typeof initJolt !== 'function') throw new TypeError('Jolt 0.23.0 did not export an initializer function');
-	const Jolt = await initJolt();
-	physics = await createPhysics(THREE, Jolt, scene, player);
+	physics = await createPhysics(THREE, scene, player);
 }
 
 start().catch((error) => {
