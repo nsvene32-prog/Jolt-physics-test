@@ -4,21 +4,27 @@ const portalHalfTurn = new THREE.Matrix4().makeRotationY(Math.PI);
 const portalMatrix = new THREE.Matrix4();
 const portalTransform = new THREE.Matrix4();
 const portalInverse = new THREE.Matrix4();
-const portalTargetHeight = 1024;
+const portalTargetHeight = 512;
+const nestedPortalTargetHeight = 256;
+
+function getTargetWidth(height, aspect) {
+	return Math.max(1, Math.round(height * aspect));
+}
 
 function createPortal(THREE, scene, camera, { position, rotation = [0, 0, 0], wall, width = 1.5, height = 2.5 }) {
 	const portal = new THREE.Group();
 	portal.position.set(...position);
 	portal.rotation.set(...rotation);
 
-	const targetWidth = Math.round(portalTargetHeight * camera.aspect);
+	const targetWidth = getTargetWidth(portalTargetHeight, camera.aspect);
+	const nestedTargetWidth = getTargetWidth(nestedPortalTargetHeight, camera.aspect);
 	const renderTarget = new THREE.WebGLRenderTarget(targetWidth, portalTargetHeight, {
 		minFilter: THREE.LinearFilter,
 		magFilter: THREE.LinearFilter,
 		depthBuffer: true,
 	});
 	renderTarget.texture.colorSpace = THREE.SRGBColorSpace;
-	const nestedRenderTarget = new THREE.WebGLRenderTarget(targetWidth, portalTargetHeight, {
+	const nestedRenderTarget = new THREE.WebGLRenderTarget(nestedTargetWidth, nestedPortalTargetHeight, {
 		minFilter: THREE.LinearFilter,
 		magFilter: THREE.LinearFilter,
 		depthBuffer: true,
@@ -88,10 +94,11 @@ export function createPortalPair(THREE, scene, camera, { eastWall, northWall }) 
 }
 
 export function resizePortals(portals, aspect) {
-	const targetWidth = Math.max(1, Math.round(portalTargetHeight * aspect));
+	const targetWidth = getTargetWidth(portalTargetHeight, aspect);
+	const nestedTargetWidth = getTargetWidth(nestedPortalTargetHeight, aspect);
 	for (const portal of portals) {
 		portal.renderTarget.setSize(targetWidth, portalTargetHeight);
-		portal.nestedRenderTarget.setSize(targetWidth, portalTargetHeight);
+		portal.nestedRenderTarget.setSize(nestedTargetWidth, nestedPortalTargetHeight);
 		portal.camera.aspect = aspect;
 		portal.camera.updateProjectionMatrix();
 		portal.nestedCamera.aspect = aspect;
@@ -131,7 +138,7 @@ export function renderPortals(renderer, camera, portals, avatar) {
 		const previousDestinationViewProjection = destinationViewProjection.clone();
 		try {
 			for (const linkedPortal of portals) linkedPortal.surface.visible = false;
-			avatar.visible = true;
+			avatar.visible = false;
 
 			const nestedDestination = destination.destination;
 			destination.group.updateWorldMatrix(true, false);

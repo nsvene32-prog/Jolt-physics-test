@@ -64,6 +64,9 @@ export function createWorld(THREE, camera) {
 	const eastWall = addBox({ size: [0.5, 3, 14], position: [9.75, 1.5, 0], color: 0x52686a, mass: 0 });
 	const northWall = addBox({ size: [20, 3, 0.5], position: [0, 1.5, -6.75], color: 0x52686a, mass: 0 });
 	addBox({ size: [20, 3, 0.5], position: [0, 1.5, 6.75], color: 0x52686a, mass: 0 });
+	const ceiling = addBox({ size: [20, 0.3, 14], position: [0, 3.15, 0], color: 0x52686a, mass: 0 });
+	ceiling.castShadow = false;
+	ceiling.receiveShadow = false;
 
 	const portals = createPortalPair(THREE, scene, camera, { eastWall, northWall });
 
